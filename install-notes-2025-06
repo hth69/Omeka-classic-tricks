@@ -1,0 +1,144 @@
+# Version for June 2025
+# Let's assume we're using a VPS or something equivalent.
+# OS: Ubuntu 24
+# Ask for port 25 / outgoing traffic to be opened 
+
+# Set sshd port and public key for root login
+# Try and disable password authentication in /etc/ssh/sshd_config
+# Decide specific SSH port for this host
+# Set up new SSH port in firewall configuration
+# Set up new SSH port in sshd_config
+# service sshd restart
+# Thoroughly test the SSH setup
+
+apt-get update && sudo apt-get -y upgrade
+
+apt -y install apache2 mariadb-server
+apt -y install php libapache2-mod-php php-mysql php-xml
+apt -y install unzip
+apt -y install sendmail
+apt -y install imagemagick
+
+apt -y install snapd
+snap install --classic certbot
+ln -s /snap/bin/certbot /usr/bin/certbot
+
+systemctl start apache2
+systemctl enable apache2
+systemctl start mysql
+systemctl enable mysql
+
+# Prepare the database manually:
+mysql -u root -p
+
+CREATE DATABASE db_name;
+CREATE USER user_name;
+GRANT ALL PRIVILEGES ON db_nane.* TO 'user_name'@localhost IDENTIFIED BY 'strong_password';
+FLUSH PRIVILEGES;
+EXIT
+
+# OMEKA install
+# Browse to: https://omeka.org/classic/download/
+# Copy the download link
+wget download_link
+
+# At the time of writing, the current version is: omeka-3.1.2.zip
+unzip omeka-3.1.2
+mv omeka-3.1.2 /var/www/omeka-classic
+
+# Set up Apache2 virtualhosts 
+# Key points:
+# 1. There's a main domain (main-domain.tld below) and there are other domains pointing at the same omeka-classic instance.
+# 2. There's an apache2 (a2) conf file for the main domain on 80, with a rewrite for any incoming domain to become main domain.
+
+<VirtualHost *:80>
+	ServerAdmin webmaster@localhost
+	DocumentRoot /var/www/omeka-classic/
+
+	ServerName main-domain.tld
+
+	ErrorLog ${APACHE_LOG_DIR}/error.log
+	CustomLog ${APACHE_LOG_DIR}/access.log combined
+
+  <Directory /var/www/omeka-classic>
+    Options FollowSymLinks
+    AllowOverride All
+    Require all granted
+  </Directory>
+
+  RewriteEngine on
+  RewriteCond %{SERVER_NAME} =main-domain.tld
+  RewriteRule ^ https://%{SERVER_NAME}%{REQUEST_URI} [END,NE,R=permanent]
+</VirtualHost>
+
+# 3. There's an a2 for the main domain on 443. The DNS (@ registrar) is configured with an A record that points the root/@ to the IP of the VPS.
+
+<IfModule mod_ssl.c>
+<VirtualHost *:443>
+	ServerAdmin webmaster@localhost
+	DocumentRoot /var/www/omeka-classic/
+
+	ServerName main-domain.tld
+
+	ErrorLog ${APACHE_LOG_DIR}/error_main.log
+	CustomLog ${APACHE_LOG_DIR}/access_main.log combined
+
+        <Directory /var/www/omeka-classic>
+           Options FollowSymLinks
+           AllowOverride All
+           Require all granted
+	</Directory>
+
+</VirtualHost>
+</IfModule>
+
+# 4. From there the "certbot --apache" command can be run and will add the SSL stuff to the 443-main-domain-conf file. 
+# The following lines are added to the conf file above
+
+  SSLCertificateFile /etc/letsencrypt/live/main-domain.tld/fullchain.pem
+  SSLCertificateKeyFile /etc/letsencrypt/main-domain.tld/privkey.pem
+  Include /etc/letsencrypt/options-ssl-apache.conf
+
+# 5. For the other domains, the configuration happens in 3 steps:
+# 5.a. The DNS for the other domain is configured with an A record that points the root/@ to the IP of the VPS. 
+# 5.b. An a2 virtualhost is created for other-domain:443 as to redirect to main-domain:443
+# 5.c. "certbot --apache" must be run now, in order to create the certs and install them in the a2 conf file.
+# 5. Note #1: certbot requires the A record to be set as part of its challenges/tests before creating/installing the cert.
+# 5. Note #2: Better to add each other-domain one after the other, and test thoroughly (esp. that other-domain becomes main-domain).
+# The resulting a2 .conf file looks like that:
+
+<IfModule mod_ssl.c>
+<VirtualHost *:443>
+	ServerAdmin webmaster@localhost
+	DocumentRoot /var/www/omeka-classic/
+
+	ServerName alternate-domain-1.tld
+
+        Redirect / https://main-domain.tld/
+
+	ErrorLog ${APACHE_LOG_DIR}/error_alt_1.log
+	CustomLog ${APACHE_LOG_DIR}/access_alt_1.log combined
+
+        <Directory /var/www/omeka-classic>
+           Options FollowSymLinks
+           AllowOverride All
+           Require all granted
+	</Directory>
+
+  SSLCertificateFile /etc/letsencrypt/live/alternate-domain-1.tld/fullchain.pem
+  SSLCertificateKeyFile /etc/letsencrypt/live/alternate-domain-1.tld/privkey.pem
+  Include /etc/letsencrypt/options-ssl-apache.conf
+</VirtualHost>
+</IfModule>
+
+chown -R www-data:www-data /var/www/omeka-classic/
+
+# In order to use the Captcha feature (e.g. for the contact form)...
+# - One requires to get a G.Anaytics account.
+# - The secret keys are v2 (not v3) and the domain registered with G.Analytics must be main-domain.tld 
+
+a2enmod rewrite
+a2enmod headers
+a2ensite 000-default (and/or any of the conf files linked in /etc/apache2/sites-enabled
+systemctl restart apache2
+
