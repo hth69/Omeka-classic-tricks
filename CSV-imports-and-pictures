@@ -1,0 +1,42 @@
+# Imports and pictures
+# --------------------
+- The UI provided with the CSV import module is quite a hack.
+
+- Things to do:
+1. Enable logs as to be able to debug the issues with CSV import!
+2. In
+3. Locate the Logging section
+4. Set log.errors to true => log.errors = true
+
+- Things to know / to consider:
+1. Spread the web page that displays the CSV import options wide on your screen, as to see the columns for Files? and Tags?
+2. Your CSV will contain columns for the pictures associated with the items you wish to import
+3. The content of these columns is either blank/empty or URLs that point to the pictures. 
+   In other words: 1 picture = 1 unique URL, and this unique URL is the content of one of the columns dedicated to the pictures 
+4. All the columns of your future CSV file must be named with a unique name => pic1_url, pic2_url...
+5. As to make the job easier, I recommend to split the imports in collection specific chunks. 
+   Say you have 5 collections, then have 5 different CSV files to import, each containing the items of a single collection. 
+   In order to keep my sanity during the data cleaning process that precedes the actual import, I work on chunks that are 300 lines long tops. 
+6. When you have imported your items and pictures, you may find out that the pictures are displayed from the source website! 
+   There's one simple way to fix that, that relies on the fact that the imported pictures are given a new name (a UUID) when copied into /var/www/omeka-instance/files/original/
+   The fix starts with launching the mysql CLI, and there:
+     MariaDB [(none)]> use db_name
+     Database changed
+     MariaDB [db_name]> UPDATE omeka_files SET original_filename = CONCAT("https://main-domain.tld/files/original/",filename);
+     exit
+   That's it. When you reload the webpage where the source URL was showing up, you will find out that the source URL has changed to the local main-domain.tld instance.
+   As I said earlier, this module is a hack, and the paint is still wet.
+
+
+
+# Multiple languages
+# ------------------
+- Omeka was not designed as a multilingual platform
+- The simplest approach is to have at least one domain for each language 
+  (to be configured as per the install notes here: https://github.com/hth69/Omeka-classic-tricks/blob/main/install-notes-2025-06), and
+- Duplicate the database of the first language (say omeka_db_DE) for the second language (say omeka_db_EN) - mysqldump is your friend
+- Duplicate the omeka instance of the first language for a second language (e.g. cp -r /var/www/omeka_DE /var/www/omeka_EN)
+- Modify the dbname value in /var/www/omeka_EN/db.ini as to point to omeka_db_EN
+- In /var/www/omeka_EN/application/config/config.ini  under Localization  change the locale to -- locale.name = "" -- 
+- And then translate the pages / collections / items / tags to the target language, potentially by using some automated wizardry between the database and a web based translation service.
+
